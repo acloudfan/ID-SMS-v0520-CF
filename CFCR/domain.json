@@ -1,0 +1,13 @@
+{'DomainArn': 'arn:aws:sagemaker:us-east-1: 837510115097:domain/d-naknf7hxlss3', 'DomainId': 'd-naknf7hxlss3', 'DomainName': 'default-1588179875997', 'HomeEfsFileSystemId': 'fs-e609e165', 'Status': 'InService', 'CreationTime': datetime.datetime(2020,
+    4,
+    29,
+    13,
+    4,
+    37,
+    825000, tzinfo=tzlocal()), 'LastModifiedTime': datetime.datetime(2020,
+    4,
+    29,
+    13,
+    6,
+    27,
+    644000, tzinfo=tzlocal()), 'AuthMode': 'IAM', 'DefaultUserSettings': {'ExecutionRole': 'arn:aws:iam: : 837510115097:role/my-sagemaker-studio-role', 'SharingSettings': {'NotebookOutputOption': 'Allowed', 'S3OutputPath': 's3: //sagemaker-studio-837510115097-osnt282bn2/sharing'}}, 'SubnetIds': ['subnet-0687abc8cf9942297', 'subnet-0b2ab0911675172f7'], 'Url': 'https://d-naknf7hxlss3.studio.us-east-1.sagemaker.aws', 'VpcId': 'vpc-03886ebf95ae3ba49', 'ResponseMetadata': {'RequestId': '1f88c7fc-8f82-47ea-a2e0-c78327d311dc', 'HTTPStatusCode': 200, 'HTTPHeaders': {'x-amzn-requestid': '1f88c7fc-8f82-47ea-a2e0-c78327d311dc', 'content-type': 'application/x-amz-json-1.1', 'content-length': '709', 'date': 'Mon, 18 May 2020 12:12:26 GMT'}, 'RetryAttempts': 0}}

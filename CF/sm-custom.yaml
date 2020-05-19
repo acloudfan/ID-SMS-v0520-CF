@@ -1,0 +1,56 @@
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: Immersion Day Setup for event engine 
+Metadata:
+  LICENSE: Apache License Version 2.0
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: Account configuration
+        Parameters:
+          - IDVersion
+    ParameterLabels:
+      IDVersion:
+        default: sm-id-0520
+
+Resources:
+
+  # Generate a unique bucket - this will hold the code for the LambdaDomain creator
+  LamdbaCodeBucket:
+    Type: AWS::S3::Bucket
+    Description: a unique bucket
+    # Properties:
+      # BucketName: ''
+
+  # Custom Resource Lambda
+  LambdaDomainCreator:
+    Type: AWS::Lambda::Function 
+    Description: This lamda is for the creation of the Domain & user ID
+    Properties:
+      Code: 
+        S3Bucket: awsrajeev-west-2
+        S3Key: dom.zip
+      FunctionName: manage_sagemaker_domain
+      Handler: lambda-handler.handler
+      # Change this to the SMLambdaExecutionRole
+      Role: arn:aws:iam::837510115097:role/SM-ID-0520-SMLambdaExecutionRole-1EUSYKLR5X5SM
+      Runtime: python3.7
+
+  SagemakerStudioDomain:
+    Type: "Custom::SMDomain"
+    Properties:
+      # This is the ARN for the Lambda
+      # ServiceToken: "arn:aws:lambda:us-east-1:837510115097:function:manage-sm-studio"
+      ServiceToken: !GetAtt "LambdaDomainCreator.Arn"
+      # This is the ARN for the studio role
+      StudioExecutionRole: arn:aws:iam::837510115097:role/service/sm-studio-role
+      # This is the 
+      StudioDomainRegion: !Sub ${AWS::Region}
+
+Outputs:
+  DomainId:
+    Value: !GetAtt SagemakerStudioDomain.domainId
+  BucketURL:
+    Value: !GetAtt LamdbaCodeBucket.WebsiteURL
+    

@@ -1,0 +1,231 @@
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: Immersion Day Setup for event engine
+Metadata:
+  LICENSE: Apache License Version 2.0
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: Account configuration
+        Parameters:
+          - IDVersion
+    ParameterLabels:
+      IDVersion:
+        default: sm-id-0520
+
+Parameters:
+  IDVersion:
+    Type: String
+    Default: sm-id-0520
+    Description: This is the version of the of SM ID Assets - test
+  SMPassword:
+    Type: String
+
+Resources:
+
+  # Admin group for the user
+  SMAdminGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: "sm-administrators"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AdministratorAccess"
+        - "arn:aws:iam::aws:policy/AmazonSageMakerFullAccess"
+      Path: /
+
+  # Used for console login
+  SMuser:
+    Type: AWS::IAM::User
+    Properties:
+      Groups:
+        - !Ref 'SMAdminGroup'
+      LoginProfile:
+        Password: !Ref 'SMPassword'
+        PasswordResetRequired: true
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/IAMUserChangePassword"
+      Path: /
+      UserName: "smuser"
+
+  # Used by the SM Studio
+  SMStudioRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: sm-studio-role
+      Path: /service/
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: [ "sagemaker.amazonaws.com" ]
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AWSLambdaFullAccess
+
+  # Used for Lambda Function
+  SMLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: sm-lambda-role
+      Path: /service/
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: [ "lambda.amazonaws.com" ]
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSLambdaFullAccess
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+  
+  # Used for Lambda Execution
+  SMLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+        # This is for testing the custom resource
+        - "arn:aws:iam::aws:policy/AdministratorAccess"
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:*
+            Resource: arn:aws:logs:*:*:*
+
+  # Lambda for executing the end point
+  SMLamdaExecEndpoint:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: CustomerChurnLambda
+      Environment:
+        Variables:
+          ENDPOINT_NAME: "churn-endpoint"
+      Description: This is the Lambda that will be created for invoking the endpoint
+      Runtime: python3.7
+      # Refer to the ARN of the created role
+      Role: {"Fn::GetAtt" : ["SMLambdaExecutionRole", "Arn"] }
+      Handler: index.lambda_handler
+      
+      Code:
+        ZipFile: |
+          import os
+          import io
+          import boto3
+          import json
+          import csv
+
+          # grab environment variables
+          ENDPOINT_NAME = os.environ['ENDPOINT_NAME']
+          runtime= boto3.client('runtime.sagemaker')
+
+          def lambda_handler(event, context):
+              print("Received event: " + json.dumps(event, indent=2))
+              
+              data = json.loads(json.dumps(event))
+
+              print("request=="+data['request'])
+              
+              response = runtime.invoke_endpoint(EndpointName=ENDPOINT_NAME,
+                                                ContentType='text/csv',
+                                                Body=data['request'])
+              print(response)
+              result = json.loads(response['Body'].read().decode())
+
+              # result = round(result)
+              
+              result="{\"prediction\": '"+str(result)+"'}"
+              print(result)
+              
+              return {
+              'statusCode': 200,
+              'headers': {
+                  "Access-Control-Allow-Origin": "*",
+                  "Access-Control-Allow-Headers": "Content-Type",
+                  "Access-Control-Allow-Methods": "GET"
+              },
+                  'body': result
+              }
+    
+  # Exapose Lambda as an API
+  SMAPIGatewayExecLambda:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: ChurnPredictionAPI
+      # Version: 1.0
+      Description: Exposes the Lambda as a REST API endpoint
+      # CORS:
+      #   AllowMethods: "*"
+      #   AllowOrigins: "*"
+      
+  # Root method
+  SMAPIGatewayRootMethod:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      AuthorizationType: "NONE"
+      HttpMethod: "POST"
+      Integration:
+        IntegrationHttpMethod: "POST"
+        IntegrationResponses: 
+          - StatusCode: 200 
+            ResponseParameters: 
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'" 
+              method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS,POST'" 
+              method.response.header.Access-Control-Allow-Origin: "'*'" 
+        # Pointing to an AWS service
+        Type: "AWS"
+        Uri: !Sub
+          - "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${lambdaArn}/invocations"
+          - lambdaArn: !GetAtt "SMLamdaExecEndpoint.Arn"
+      ResourceId: !GetAtt "SMAPIGatewayExecLambda.RootResourceId"
+      RestApiId: !Ref "SMAPIGatewayExecLambda"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true 
+  
+  # API Deployment
+  SMAPIGatewayDeployment:
+    Type: "AWS::ApiGateway::Deployment"
+    DependsOn:
+      - "SMAPIGatewayRootMethod"
+    Properties:
+      RestApiId: !Ref "SMAPIGatewayExecLambda"
+      # StageName: !Ref "apiGatewayStageName"
+      StageName: dev
+
+  # API Gateway Invoke
+  SMAPIGatewayInvoke:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !GetAtt "SMLamdaExecEndpoint.Arn"
+      Principal: "apigateway.amazonaws.com"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${SMAPIGatewayExecLambda}/*/POST/"
+
+
+
+Outputs:
+  AllRoles:
+    Description: Provides the ARN for Roles
+    Value: !GetAtt  SMLambdaExecutionRole.Arn
